@@ -118,6 +118,26 @@ class TransactionsControllerIT extends AbstractControllerIT {
     }
 
     @Test
+    void a_retried_reversal_takes_effect_once_and_gets_the_same_answer() throws Exception {
+        String merchant = openAccount("EUR");
+        String id = read(send(post("/v1/transactions"), newKey(), transfer(SETTLEMENT_EUR, merchant, "4.00"))).get("id").asString();
+        String key = newKey();
+
+        MockHttpServletResponse first = send(post("/v1/transactions/" + id + "/reversal"), key, null);
+        MockHttpServletResponse retry = send(post("/v1/transactions/" + id + "/reversal"), key, null);
+
+        assertThat(first.getStatus()).isEqualTo(201);
+        assertThat(first.getHeader("Idempotent-Replayed")).isNull();
+        assertThat(retry.getStatus()).as("the same answer, not ALREADY_REVERSED").isEqualTo(201);
+        assertThat(retry.getHeader("Idempotent-Replayed")).isEqualTo("true");
+        assertThat(retry.getHeader("Location")).isEqualTo(first.getHeader("Location"));
+        assertThat(read(retry)).isEqualTo(read(first));
+        assertThat(jdbcClient.sql("SELECT COUNT(*) FROM transactions WHERE reverses_id = ?").param(id)
+                .query(Long.class).single()).as("one reversal").isEqualTo(1);
+        assertThat(balance(merchant)).isEqualTo("0.00");
+    }
+
+    @Test
     void a_refused_transaction_leaves_nothing_behind() throws Exception {
         String merchant = openAccount("EUR");
         String payouts = openAccount("EUR");
