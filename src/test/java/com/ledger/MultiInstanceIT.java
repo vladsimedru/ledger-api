@@ -3,7 +3,7 @@ package com.ledger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
-import com.ledger.adapter.web.filter.RequestIdFilter;
+import com.ledger.filter.RequestIdFilter;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
