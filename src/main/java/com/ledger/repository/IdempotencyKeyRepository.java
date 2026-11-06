@@ -1,12 +1,13 @@
 package com.ledger.repository;
 
 import com.ledger.model.StoredResponse;
-import java.time.Duration;
 import java.util.Optional;
 
 /**
  * Remembers the response given to each idempotency key. Rows are written in the same database
- * transaction as the work they describe, so a key is stored if and only if its outcome is.
+ * transaction as the work they describe, so a key is stored if and only if its outcome is. Keys are
+ * never deleted: a retry, however late, gets the original response, and a key can never be taken
+ * for a different request.
  */
 public interface IdempotencyKeyRepository {
 
@@ -22,7 +23,4 @@ public interface IdempotencyKeyRepository {
 
     /** Records the outcome of a key claimed by the current transaction. */
     void complete(String key, StoredResponse response);
-
-    /** Deletes up to {@code limit} keys older than the retention period; returns how many it deleted. */
-    int deleteOlderThan(Duration retention, int limit);
 }

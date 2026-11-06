@@ -37,8 +37,6 @@ ledger:
     payments-settled: payments.settled
     payments-settled-dlt: payments.settled.DLT
     transactions: ledger.transactions
-  idempotency:
-    retention: 24h
   outbox:
     poll-interval: PT0.2S
     batch-size: 100

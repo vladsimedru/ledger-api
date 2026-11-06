@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.groups.Tuple.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -46,6 +47,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
@@ -279,19 +281,17 @@ class LedgerServiceTest {
         }
 
         @Test
-        void the_same_payment_recorded_concurrently_elsewhere_is_a_duplicate() {
-            when(transactionRepository.findByPaymentId("pay-1"))
-                    .thenReturn(Optional.empty(), Optional.of(settled("pay-1", 12550)));
-            givenLocked(settlement(), account(MERCHANT, 0));
-            when(ledgerClock.getCurrentTime()).thenReturn(NOW);
-            doThrow(new DuplicateKeyException("uk_payment_id"))
-                    .when(transactionRepository).insert(any());
+        void looks_for_the_payment_only_once_its_accounts_are_locked() {
+            // So a copy handled concurrently elsewhere waits on the lock, then finds the committed payment
+            // (proven against MySQL in MessagingIT).
+            when(transactionRepository.findByPaymentId("pay-1")).thenReturn(Optional.of(settled("pay-1", 12550)));
 
-            SettlementResult result = ledgerService.recordSettledPayment("pay-1", MERCHANT, new BigDecimal("125.50"), "EUR");
+            ledgerService.recordSettledPayment("pay-1", MERCHANT, new BigDecimal("125.50"), "EUR");
 
-            assertThat(result.duplicate()).isTrue();
-            verify(accountRepository, never()).updateBalances(any());
-            verifyNoInteractions(transactionEventPublisher);
+            InOrder order = inOrder(accountRepository, transactionRepository);
+            order.verify(accountRepository).lockAll(Set.of(SETTLEMENT, MERCHANT));
+            order.verify(transactionRepository).findByPaymentId("pay-1");
+            assertNothingWritten();
         }
 
         @Test

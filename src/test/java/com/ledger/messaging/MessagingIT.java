@@ -12,6 +12,7 @@ import com.ledger.model.Direction;
 import com.ledger.model.EntryDraft;
 import com.ledger.model.LedgerCurrency;
 import com.ledger.model.SettlementAccounts;
+import com.ledger.model.SettlementResult;
 import com.ledger.model.TransactionDraft;
 import com.ledger.repository.TransactionRepository;
 import com.ledger.service.LedgerQueryService;
@@ -21,6 +22,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
@@ -88,6 +94,37 @@ class MessagingIT {
         await().atMost(WAIT).until(() -> paymentCount(marker) == 1);
         assertThat(paymentCount(paymentId)).isEqualTo(1);
         assertThat(balance(merchant)).isEqualTo("125.51");
+    }
+
+    @Test
+    void the_same_payment_handled_by_several_consumers_at_once_is_recorded_once() throws Exception {
+        // Kafka hands one partition to one consumer, but a payment re-sent under another key can land on
+        // another partition, so other consumers (on other instances) may handle copies at the same moment.
+        AccountDto merchant = openAccount("EUR", "Merchant");
+        String paymentId = "pay-" + UUID.randomUUID();
+        int copies = 8;
+
+        ExecutorService pool = Executors.newFixedThreadPool(copies);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<SettlementResult>> results = new ArrayList<>();
+        for (int i = 0; i < copies; i++) {
+            results.add(pool.submit(() -> {
+                start.await();
+                return ledgerService.recordSettledPayment(paymentId, merchant.getId(), new BigDecimal("40.00"), "EUR");
+            }));
+        }
+        start.countDown();
+        List<SettlementResult> recorded = new ArrayList<>();
+        for (Future<SettlementResult> f : results) {
+            recorded.add(f.get(60, TimeUnit.SECONDS));
+        }
+        pool.shutdown();
+
+        assertThat(recorded).extracting(r -> r.transaction().id()).as("every copy gets the same transaction").containsOnly(
+                recorded.get(0).transaction().id());
+        assertThat(recorded).filteredOn(r -> !r.duplicate()).hasSize(1);
+        assertThat(paymentCount(paymentId)).isEqualTo(1);
+        assertThat(balance(merchant)).isEqualTo("40.00");
     }
 
     @Test

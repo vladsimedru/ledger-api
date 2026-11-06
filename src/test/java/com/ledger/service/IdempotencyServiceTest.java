@@ -11,7 +11,6 @@ import com.ledger.exception.StoredProblemException;
 import com.ledger.model.StoredResponse;
 import com.ledger.repository.IdempotencyKeyRepository;
 import java.net.URI;
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -186,11 +185,6 @@ class IdempotencyServiceTest {
         @Override
         public void complete(String key, StoredResponse response) {
             completed.put(key, response);
-        }
-
-        @Override
-        public int deleteOlderThan(Duration retention, int limit) {
-            throw new UnsupportedOperationException();
         }
     }
 }

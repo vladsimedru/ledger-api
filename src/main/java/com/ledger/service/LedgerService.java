@@ -118,21 +118,21 @@ public class LedgerService {
     public SettlementResult recordSettledPayment(String paymentId, UUID merchantAccountId, BigDecimal amount,
                                                  String currencyCode) {
         LedgerCurrency currency = LedgerCurrency.of(currencyCode, "/currency");
+        TransactionDraft draft = new TransactionDraft("Payment " + paymentId + " settled", List.of(
+                new EntryDraft(SettlementAccounts.of(currency), Direction.DEBIT, amount),
+                new EntryDraft(merchantAccountId, Direction.CREDIT, amount)), null, paymentId);
+
+        // Lock the accounts before looking for the payment. Every payment in this currency locks its
+        // settlement account, so copies of one payment handled at once (by consumers on other instances)
+        // queue up here, and each one after the first sees the first one's committed transaction.
+        // (Looking first and relying on the unique payment_id to catch the race doesn't work: the
+        // failed INSERT marks the whole database transaction rollback-only.)
+        accountRepository.lockAll(draft.accountIds());
         Optional<Transaction> existing = transactionRepository.findByPaymentId(paymentId);
         if (existing.isPresent()) {
             return duplicate(existing.get(), merchantAccountId, amount, currency);
         }
-        TransactionDraft draft = new TransactionDraft("Payment " + paymentId + " settled", List.of(
-                new EntryDraft(SettlementAccounts.of(currency), Direction.DEBIT, amount),
-                new EntryDraft(merchantAccountId, Direction.CREDIT, amount)), null, paymentId);
-        try {
-            return new SettlementResult(recordTransaction(draft), false);
-        } catch (DuplicateKeyException e) {
-            // The same payment, recorded concurrently by another consumer and committed first. Our INSERT
-            // was the first write, so nothing of ours was written.
-            Transaction recorded = transactionRepository.findByPaymentId(paymentId).orElseThrow(() -> e);
-            return duplicate(recorded, merchantAccountId, amount, currency);
-        }
+        return new SettlementResult(recordTransaction(draft), false);
     }
 
     private static SettlementResult duplicate(Transaction recorded, UUID merchantAccountId, BigDecimal amount,

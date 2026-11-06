@@ -19,6 +19,7 @@ Ledger is up:
   API (load-balanced over 2 instances)  http://localhost:${LEDGER_PORT:-8080}
   Instance 1 / 2                        http://localhost:8081  http://localhost:8082
   Kafka UI (topics, messages, DLT)      http://localhost:${KAFKA_UI_PORT:-8085}
+  phpMyAdmin (MySQL tables)             http://localhost:${PHPMYADMIN_PORT:-8086}
 
 Send a sample payment-settled message:
   ./scripts/send-payment.sh <merchantAccountId> 125.50 EUR

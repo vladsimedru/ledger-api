@@ -118,6 +118,64 @@ class TransactionsControllerIT extends AbstractControllerIT {
     }
 
     @Test
+    void a_refused_transaction_leaves_nothing_behind() throws Exception {
+        String merchant = openAccount("EUR");
+        String payouts = openAccount("EUR");
+        String jpyMerchant = openAccount("JPY");
+        String jpyPayouts = openAccount("JPY");
+        fund(merchant, "25.50");
+        String reversed = read(send(post("/v1/transactions"), newKey(), transfer(SETTLEMENT_EUR, payouts, "1.00")))
+                .get("id").asString();
+        assertThat(send(post("/v1/transactions/" + reversed + "/reversal"), newKey(), null).getStatus()).isEqualTo(201);
+        // Not the settlement account: payments from other tests may still be landing on it.
+        List<String> involved = List.of(merchant, payouts, jpyMerchant, jpyPayouts);
+        String before = ledgerState(involved);
+
+        record Refusal(String path, String body, int status, String code) {
+        }
+        List<Refusal> refusals = List.of(
+                new Refusal("/v1/transactions", """
+                        {"description":"unbalanced","entries":[
+                          {"accountId":"%s","direction":"DEBIT","amount":"100.00"},
+                          {"accountId":"%s","direction":"CREDIT","amount":"99.00"}]}""".formatted(merchant, payouts),
+                        422, "UNBALANCED"),
+                new Refusal("/v1/transactions", transfer(merchant, payouts, "50.00"), 422, "OVERDRAFT_LIMIT_EXCEEDED"),
+                new Refusal("/v1/transactions", transfer(jpyMerchant, jpyPayouts, "100.5"), 422, "AMOUNT_PRECISION_EXCEEDED"),
+                new Refusal("/v1/transactions", transfer(merchant, jpyMerchant, "10.00"), 422, "CURRENCY_MISMATCH"),
+                new Refusal("/v1/transactions", """
+                        {"description":"one entry","entries":[
+                          {"accountId":"%s","direction":"CREDIT","amount":"10.00"}]}""".formatted(merchant),
+                        422, "TOO_FEW_ENTRIES"),
+                new Refusal("/v1/transactions", transfer(merchant, UUID.randomUUID().toString(), "1.00"), 422, "UNKNOWN_ACCOUNT"),
+                new Refusal("/v1/transactions", transfer(merchant, merchant, "1.00"), 422, "SAME_ACCOUNT"),
+                new Refusal("/v1/transactions", transfer(merchant, payouts, "-1.00"), 422, "AMOUNT_NOT_POSITIVE"),
+                new Refusal("/v1/transactions/" + reversed + "/reversal", null, 409, "ALREADY_REVERSED"),
+                new Refusal("/v1/transactions/" + UUID.randomUUID() + "/reversal", null, 404, "NOT_FOUND"));
+
+        for (Refusal refusal : refusals) {
+            assertProblem(send(post(refusal.path()), newKey(), refusal.body()), refusal.status(), refusal.code());
+            assertThat(ledgerState(involved)).as("after a %s refusal", refusal.code()).isEqualTo(before);
+        }
+    }
+
+    /**
+     * Everything a transaction on these accounts would write: their balances, their entries, the
+     * transactions those belong to and the announcements naming them.
+     */
+    private String ledgerState(List<String> accounts) {
+        String in = String.join(",", accounts.stream().map(a -> "'" + a + "'").toList());
+        return "balances " + jdbcClient.sql("SELECT GROUP_CONCAT(balance ORDER BY id) FROM accounts WHERE id IN (" + in + ")")
+                        .query(String.class).single()
+                + ", entries " + jdbcClient.sql("SELECT COUNT(*) FROM entries WHERE account_id IN (" + in + ")")
+                        .query(Long.class).single()
+                + ", transactions " + jdbcClient.sql("SELECT COUNT(DISTINCT transaction_id) FROM entries WHERE account_id IN (" + in + ")")
+                        .query(Long.class).single()
+                + ", outbox " + jdbcClient.sql("SELECT COUNT(*) FROM outbox_events WHERE "
+                                + String.join(" OR ", accounts.stream().map(a -> "payload LIKE '%" + a + "%'").toList()))
+                        .query(Long.class).single();
+    }
+
+    @Test
     void errors_are_problem_details_with_a_code_and_a_pointer() throws Exception {
         String eur = openAccount("EUR");
         String jpy = openAccount("JPY");

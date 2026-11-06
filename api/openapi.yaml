@@ -18,7 +18,8 @@ info:
       response with `Idempotent-Replayed: true`, on any instance. Reusing a key
       for a different request is refused with `IDEMPOTENCY_KEY_REUSED`. A request
       that failed with a 5xx left nothing behind and may be retried with the same
-      key. Keys are kept for at least 24 hours.
+      key. Keys never expire: a retry gets the original response however late it
+      comes, and a key is never accepted for a different request.
     * **Errors** use RFC 9457 `application/problem+json`, with a stable `code` and,
       where a part of the request was at fault, `errors[].pointer` as a JSON
       Pointer into the request body.

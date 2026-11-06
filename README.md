@@ -19,7 +19,8 @@ balance exact under retries, redeliveries and concurrent requests.
 
 ## Running it
 
-You need Docker, Git and a JDK 17. Maven comes through the wrapper.
+You need Docker, Git and a JDK 17. Maven comes through the wrapper. The scripts are Bash: on Windows,
+run them from Git Bash, which comes with Git.
 
 ```bash
 ./run.sh
@@ -33,6 +34,7 @@ It builds the service, runs all the tests (`./mvnw verify`), then starts the who
 | API, load-balanced over both instances | http://localhost:8080 (another port: `LEDGER_PORT=8090 ./run.sh`) |
 | Instance 1 / instance 2 directly | http://localhost:8081, http://localhost:8082 |
 | Kafka UI | http://localhost:8085 |
+| phpMyAdmin (MySQL tables) | http://localhost:8086 |
 
 * Stop: `docker compose down -v`
 * Tests only: `./mvnw verify` (unit tests only: `./mvnw test`)
@@ -47,7 +49,7 @@ Every `POST` needs an `Idempotency-Key` header (a new UUID per request).
 ledger-api
 ├── api/openapi.yaml        the API contract (written first; code is generated from it)
 ├── docker/nginx.conf       the gateway in front of the two instances
-├── docker-compose.yml      MySQL, Kafka, ledger-1, ledger-2, gateway, Kafka UI
+├── docker-compose.yml      MySQL, Kafka, ledger-1, ledger-2, gateway, Kafka UI, phpMyAdmin
 ├── Dockerfile
 ├── run.sh                  build, test, start
 ├── scripts/                send a payment-settled message, watch ledger.transactions
@@ -63,7 +65,6 @@ ledger-api
     │   ├── messaging       PaymentSettledListener, outbox publisher, OutboxRelay
     │   ├── exception       GlobalExceptionHandler (problem+json), ledger and API exceptions
     │   ├── config          JdbcConfig, KafkaConfig
-    │   ├── scheduler       IdempotencyKeyCleanupScheduler
     │   ├── filter          RequestIdFilter
     │   └── support         UuidV7, the database clock
     ├── main/resources      application.yml, Flyway migrations (db/migration)
@@ -100,10 +101,14 @@ transaction**:
 
 1. **Claim the idempotency key.** A retry with the same key gets the stored response back
    (`Idempotent-Replayed: true`) and nothing happens twice; the same key with a different request is refused.
+   Keys never expire, so this holds however late the retry comes (see *Improvements* for the cost).
 2. **Lock** every account involved (`SELECT … FOR UPDATE`), one at a time in ascending id order, so
    concurrent transactions can't lose updates or deadlock.
 3. **Apply the rules** (`PostingService`): balanced debits and credits, one currency, at least two different
    accounts, valid amounts, no account past its overdraft limit. A refusal writes nothing.
+   "At least two different accounts" is a rule of this ledger beyond the spec (which asks for two or more
+   entries): debiting and crediting the same account moves no money, so it's refused as `SAME_ACCOUNT`.
+   The overdraft limit applies to where each account ends up once the whole transaction is applied.
 4. **Write** the transaction, its entries, the new balances, the stored response and an outbox event.
 
 Amounts are decimal strings in the API and `BIGINT` minor units in the database; there is no floating

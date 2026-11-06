@@ -148,6 +148,16 @@ class PostingServiceTest {
         }
 
         @Test
+        void the_same_unknown_account_twice_is_unknown_not_same_account() {
+            UUID unknown = UUID.randomUUID();
+            var e = assertRefused(() -> postingService.post(UUID.randomUUID(), TransactionDraft.of("x", List.of(
+                            new EntryDraft(unknown, DEBIT, new BigDecimal("10.00")),
+                            new EntryDraft(unknown, CREDIT, new BigDecimal("10.00")))), accounts, NOW),
+                    ErrorCode.UNKNOWN_ACCOUNT, "/entries/0/accountId");
+            assertThat(e.getViolations()).extracting(Violation::code).containsOnly(ErrorCode.UNKNOWN_ACCOUNT);
+        }
+
+        @Test
         void unknown_account() {
             UUID unknown = UUID.randomUUID();
             assertRefused(() -> postingService.post(UUID.randomUUID(), TransactionDraft.of("x", List.of(

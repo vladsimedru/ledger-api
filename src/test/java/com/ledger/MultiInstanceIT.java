@@ -132,9 +132,45 @@ class MultiInstanceIT {
                 found -> found.stream().map(this::transactionId).distinct().count() == applied.size(),
                 Duration.ofSeconds(60));
         assertThat(announced.stream().map(this::transactionId).distinct().toList()).containsExactlyElementsOf(applied);
+        assertEveryCurrencySumsToZero();
+    }
+
+    @Test
+    void concurrent_withdrawals_through_both_instances_stop_exactly_at_the_overdraft_limit() throws Exception {
+        String noLimit = openAccount(0);                   // overdraft limit 0
+        String withLimit = openAccount(1, "20.00");        // may go down to -20.00
+        String payouts = openAccount(0);
+        post(0, "/v1/transactions", UUID.randomUUID().toString(), transfer(SETTLEMENT_EUR, noLimit, "100.00"));
+        post(1, "/v1/transactions", UUID.randomUUID().toString(), transfer(SETTLEMENT_EUR, withLimit, "100.00"));
+
+        // Ten withdrawals of 30.00 from each account at once, spread over both instances: only those
+        // that fit within the limit may succeed, whatever the interleaving.
+        List<Callable<MockHttpServletResponse>> work = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            int instance = i % 2;
+            work.add(() -> post(instance, "/v1/transactions", UUID.randomUUID().toString(), transfer(noLimit, payouts, "30.00")));
+            work.add(() -> post(1 - instance, "/v1/transactions", UUID.randomUUID().toString(), transfer(withLimit, payouts, "30.00")));
+        }
+        List<MockHttpServletResponse> responses = concurrently(work);
+
+        assertThat(responses).allSatisfy(r -> assertThat(r.getStatus()).as(r.getContentAsString()).isIn(201, 422));
+        assertThat(responses).filteredOn(r -> r.getStatus() == 422).allSatisfy(r ->
+                assertThat(jsonMapper.readTree(r.getContentAsString()).get("code").asString()).isEqualTo("OVERDRAFT_LIMIT_EXCEEDED"));
+        assertThat(responses).filteredOn(r -> r.getStatus() == 201).hasSize(3 + 4);
+        assertThat(balance(noLimit)).isEqualTo("10.00");    // 100 - 3 x 30
+        assertThat(balance(withLimit)).isEqualTo("-20.00"); // 100 - 4 x 30, exactly at the limit
+        assertThat(balance(payouts)).isEqualTo("210.00");
+        assertEveryCurrencySumsToZero();
     }
 
     // --- helpers ---
+
+    /** The integrity guarantee: whatever has been committed, each currency's balances sum to zero. */
+    private void assertEveryCurrencySumsToZero() {
+        assertThat(jdbcClient.sql("SELECT currency, SUM(balance) FROM accounts GROUP BY currency")
+                .query((rs, n) -> rs.getString(1) + " " + rs.getLong(2)).list())
+                .allSatisfy(sum -> assertThat(sum).endsWith(" 0"));
+    }
 
     private MockHttpServletResponse post(int instance, String path, String key, String body) throws Exception {
         return instances().get(instance).perform(MockMvcRequestBuilders.post(path)
@@ -142,7 +178,12 @@ class MultiInstanceIT {
     }
 
     private String openAccount(int instance) throws Exception {
-        MockHttpServletResponse r = post(instance, "/v1/accounts", UUID.randomUUID().toString(), "{\"currency\":\"EUR\"}");
+        return openAccount(instance, "0");
+    }
+
+    private String openAccount(int instance, String overdraftLimit) throws Exception {
+        MockHttpServletResponse r = post(instance, "/v1/accounts", UUID.randomUUID().toString(),
+                "{\"currency\":\"EUR\",\"overdraftLimit\":\"" + overdraftLimit + "\"}");
         assertThat(r.getStatus()).isEqualTo(201);
         return jsonMapper.readTree(r.getContentAsString()).get("id").asString();
     }

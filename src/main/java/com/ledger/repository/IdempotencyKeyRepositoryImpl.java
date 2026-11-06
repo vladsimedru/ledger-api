@@ -1,7 +1,6 @@
 package com.ledger.repository;
 
 import com.ledger.model.StoredResponse;
-import java.time.Duration;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
@@ -19,33 +18,27 @@ class IdempotencyKeyRepositoryImpl implements IdempotencyKeyRepository {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public Optional<StoredResponse> claim(String key, String requestHash) {
-        for (int attempt = 0; attempt < 3; attempt++) {
-            try {
-                // The INSERT locks the key's index entry until commit. A concurrent INSERT of the same key
-                // blocks on that lock: when we commit it fails as a duplicate, when we roll back it succeeds.
-                jdbcClient.sql("""
-                                INSERT INTO idempotency_keys (idem_key, request_hash, created_at)
-                                VALUES (:key, :hash, CURRENT_TIMESTAMP(6))""")
-                        .param("key", key)
-                        .param("hash", requestHash)
-                        .update();
-                return Optional.empty();
-            } catch (DuplicateKeyException e) {
-                // Already completed by a committed transaction: under READ COMMITTED we now see its row.
-                Optional<StoredResponse> stored = jdbcClient.sql("""
-                                SELECT request_hash, status_code, response_body, location
-                                FROM idempotency_keys WHERE idem_key = :key""")
-                        .param("key", key)
-                        .query((rs, n) -> new StoredResponse(rs.getString("request_hash"), rs.getInt("status_code"),
-                                rs.getString("response_body"), rs.getString("location")))
-                        .optional();
-                if (stored.isPresent()) {
-                    return stored;
-                }
-                // Purged in between: try to claim it again.
-            }
+        try {
+            // The INSERT locks the key's index entry until commit. A concurrent INSERT of the same key
+            // blocks on that lock: when we commit it fails as a duplicate, when we roll back it succeeds.
+            jdbcClient.sql("""
+                            INSERT INTO idempotency_keys (idem_key, request_hash, created_at)
+                            VALUES (:key, :hash, CURRENT_TIMESTAMP(6))""")
+                    .param("key", key)
+                    .param("hash", requestHash)
+                    .update();
+            return Optional.empty();
+        } catch (DuplicateKeyException e) {
+            // Completed by a committed transaction: under READ COMMITTED we now see its row. Keys are
+            // never deleted, so it is there.
+            return Optional.of(jdbcClient.sql("""
+                            SELECT request_hash, status_code, response_body, location
+                            FROM idempotency_keys WHERE idem_key = :key""")
+                    .param("key", key)
+                    .query((rs, n) -> new StoredResponse(rs.getString("request_hash"), rs.getInt("status_code"),
+                            rs.getString("response_body"), rs.getString("location")))
+                    .single());
         }
-        throw new IllegalStateException("could not claim idempotency key " + key);
     }
 
     @Override
@@ -58,18 +51,6 @@ class IdempotencyKeyRepositoryImpl implements IdempotencyKeyRepository {
                 .param("body", response.body())
                 .param("location", response.location())
                 .param("key", key)
-                .update();
-    }
-
-    @Override
-    @Transactional
-    public int deleteOlderThan(Duration retention, int limit) {
-        return jdbcClient.sql("""
-                        DELETE FROM idempotency_keys
-                        WHERE created_at < CURRENT_TIMESTAMP(6) - INTERVAL :seconds SECOND
-                        LIMIT :limit""")
-                .param("seconds", retention.toSeconds())
-                .param("limit", limit)
                 .update();
     }
 }

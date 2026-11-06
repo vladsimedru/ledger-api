@@ -102,11 +102,6 @@ public class PostingService {
         if (drafts.size() < 2) {
             violations.add(new Violation("/entries", ErrorCode.TOO_FEW_ENTRIES,
                     "A transaction needs at least two entries, this one has " + drafts.size()));
-        } else if (drafts.stream().map(EntryDraft::accountId).distinct().count() == 1) {
-            // Debit and credit the same account: nothing would change, so it's a mistake, not a transaction.
-            violations.add(new Violation("/entries/1/accountId", ErrorCode.SAME_ACCOUNT,
-                    "Every entry posts to account " + drafts.get(0).accountId()
-                            + "; a transaction must move money between at least two accounts"));
         }
         LedgerCurrency currency = null;
         for (int i = 0; i < drafts.size(); i++) {
@@ -135,6 +130,17 @@ public class PostingService {
             } else if (exceedsRange(d.amount(), account.currency())) {
                 violations.add(new Violation(at + "/amount", ErrorCode.AMOUNT_OUT_OF_RANGE,
                         d.amount().toPlainString() + " is too large"));
+            }
+        }
+        // A rule of this ledger, beyond the spec's "two or more entries": debiting and crediting one
+        // account moves no money, so it's a mistake, not a transaction. Only checked for an existing
+        // account; an unknown one is reported as UNKNOWN_ACCOUNT above.
+        if (drafts.size() >= 2) {
+            UUID first = drafts.get(0).accountId();
+            if (accounts.containsKey(first) && drafts.stream().allMatch(d -> d.accountId().equals(first))) {
+                violations.add(new Violation("/entries/1/accountId", ErrorCode.SAME_ACCOUNT,
+                        "Every entry posts to account " + first
+                                + "; a transaction must move money between at least two accounts"));
             }
         }
         throwIfAny(violations);
