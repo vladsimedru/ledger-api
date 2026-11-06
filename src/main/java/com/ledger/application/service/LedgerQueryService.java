@@ -1,5 +1,11 @@
 package com.ledger.application.service;
 
+import com.ledger.adapter.web.mapper.AccountMapper;
+import com.ledger.adapter.web.mapper.TransactionMapper;
+import com.ledger.api.generated.model.AccountDto;
+import com.ledger.api.generated.model.AccountEntryPageDto;
+import com.ledger.api.generated.model.BalanceDto;
+import com.ledger.api.generated.model.TransactionDto;
 import com.ledger.application.exception.NotFoundException;
 import com.ledger.application.port.AccountRepository;
 import com.ledger.application.port.LedgerClock;
@@ -10,6 +16,7 @@ import com.ledger.domain.model.Account;
 import com.ledger.domain.model.Money;
 import com.ledger.domain.model.Transaction;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -22,38 +29,58 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class LedgerQueryService {
 
+    private static final int DEFAULT_PAGE_SIZE = 50;
+
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final LedgerReadRepository ledgerReadRepository;
     private final LedgerClock ledgerClock;
+    private final AccountMapper accountMapper;
+    private final TransactionMapper transactionMapper;
 
-    public Account getAccount(UUID id) {
-        return accountRepository.find(id).orElseThrow(() -> new NotFoundException("Account", id));
+    public AccountDto getAccount(UUID id) {
+        return accountMapper.toAccountDto(findAccount(id));
     }
 
-    public TransactionView getTransaction(UUID id) {
+    /** The transaction, with the reversal that reversed it, if any. */
+    public TransactionDto getTransaction(UUID id) {
         Transaction transaction = transactionRepository.find(id).orElseThrow(() -> new NotFoundException("Transaction", id));
-        return new TransactionView(transaction, transactionRepository.findReversalOf(id).orElse(null));
+        UUID reversedBy = transactionRepository.findReversalOf(id).orElse(null);
+        return transactionMapper.toTransactionDto(new TransactionView(transaction, reversedBy));
     }
 
-    /** @param beforeEntryId the cursor: the id of the last entry of the previous page, or {@code null} */
-    public EntryPage listEntries(UUID accountId, Long beforeEntryId, int limit) {
-        getAccount(accountId);
-        List<AccountEntryView> rows = ledgerReadRepository.findEntries(accountId, beforeEntryId, limit + 1);
-        boolean more = rows.size() > limit;
-        List<AccountEntryView> page = more ? rows.subList(0, limit) : rows;
-        return new EntryPage(page, more ? page.get(page.size() - 1).entryId() : null);
+    /**
+     * One page of an account's entries, newest first.
+     *
+     * @param cursor the {@code nextCursor} of the previous page, or {@code null} for the first page
+     * @param limit  the page size, or {@code null} for the default of 50
+     */
+    public AccountEntryPageDto listEntries(UUID accountId, String cursor, Integer limit) {
+        Long beforeEntryId = accountMapper.decodeCursor(cursor);
+        int pageSize = limit == null ? DEFAULT_PAGE_SIZE : limit;
+        findAccount(accountId);
+        List<AccountEntryView> rows = ledgerReadRepository.findEntries(accountId, beforeEntryId, pageSize + 1);
+        boolean more = rows.size() > pageSize;
+        List<AccountEntryView> page = more ? rows.subList(0, pageSize) : rows;
+        Long nextCursor = more ? page.get(page.size() - 1).entryId() : null;
+        return accountMapper.toAccountEntryPageDto(new EntryPage(page, nextCursor));
     }
 
     /** @param asOf {@code null} for now */
-    public BalanceView getBalance(UUID accountId, Instant asOf) {
-        Account account = getAccount(accountId);
+    public BalanceDto getBalance(UUID accountId, OffsetDateTime asOf) {
+        Account account = findAccount(accountId);
         if (asOf == null) {
             Money balance = new Money(account.balance(), account.currency());
-            return new BalanceView(account, balance, ledgerClock.getCurrentTime());
+            return accountMapper.toBalanceDto(new BalanceView(account, balance, ledgerClock.getCurrentTime()));
         }
+        Instant at = asOf.toInstant();
         Money zero = Money.zero(account.currency());
-        return new BalanceView(account, ledgerReadRepository.findBalanceAsOf(accountId, zero, asOf).orElse(zero), asOf);
+        Money balance = ledgerReadRepository.findBalanceAsOf(accountId, zero, at).orElse(zero);
+        return accountMapper.toBalanceDto(new BalanceView(account, balance, at));
+    }
+
+    private Account findAccount(UUID id) {
+        return accountRepository.find(id).orElseThrow(() -> new NotFoundException("Account", id));
     }
 
     /** @param reversedBy the reversal of this transaction, or {@code null} */

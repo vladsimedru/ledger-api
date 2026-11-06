@@ -1,5 +1,12 @@
 package com.ledger.application.service;
 
+import com.ledger.adapter.web.mapper.AccountMapper;
+import com.ledger.adapter.web.mapper.TransactionMapper;
+import com.ledger.api.generated.model.AccountDto;
+import com.ledger.api.generated.model.OpenAccountRequestDto;
+import com.ledger.api.generated.model.RecordTransactionRequestDto;
+import com.ledger.api.generated.model.ReverseTransactionRequestDto;
+import com.ledger.api.generated.model.TransactionDto;
 import com.ledger.application.exception.NotFoundException;
 import com.ledger.application.port.AccountRepository;
 import com.ledger.application.port.LedgerClock;
@@ -48,13 +55,21 @@ public class LedgerService {
     private final LedgerClock ledgerClock;
     private final AccountService accountService;
     private final PostingService postingService;
+    private final AccountMapper accountMapper;
+    private final TransactionMapper transactionMapper;
 
-    /** @param overdraftLimit {@code null} for the default of zero */
-    public Account openAccount(String currency, BigDecimal overdraftLimit, String label) {
-        Account account = accountService.openAccount(UuidV7.next(), currency, overdraftLimit, label,
-                ledgerClock.getCurrentTime());
+    /** Opens an account; without an overdraft limit in the request, the limit is zero. */
+    public AccountDto openAccount(OpenAccountRequestDto request) {
+        Account account = accountService.openAccount(UuidV7.next(), request.getCurrency(),
+                accountMapper.toRequestedOverdraftLimit(request), request.getLabel(), ledgerClock.getCurrentTime());
         accountRepository.insert(account);
-        return account;
+        return accountMapper.toAccountDto(account);
+    }
+
+    /** Records a transaction as requested through the API. */
+    public TransactionDto recordTransaction(RecordTransactionRequestDto request) {
+        Transaction transaction = recordTransaction(transactionMapper.toTransactionDraft(request));
+        return transactionMapper.toTransactionDto(transaction);
     }
 
     public Transaction recordTransaction(TransactionDraft draft) {
@@ -80,8 +95,9 @@ public class LedgerService {
         return posting.transaction();
     }
 
-    /** @param description {@code null} for the default description */
-    public Transaction reverseTransaction(UUID transactionId, String description) {
+    /** @param request optional; without a description the reversal gets a default one */
+    public TransactionDto reverseTransaction(UUID transactionId, ReverseTransactionRequestDto request) {
+        String description = request == null ? null : request.getDescription();
         // Lock the original first: two reversals of the same transaction queue up here, and the second
         // one then sees the first one's reversal.
         Transaction original = transactionRepository.lock(transactionId)
@@ -89,7 +105,8 @@ public class LedgerService {
         if (transactionRepository.findReversalOf(transactionId).isPresent()) {
             throw alreadyReversed(transactionId);
         }
-        return recordTransaction(postingService.createReversalDraft(original, description));
+        Transaction reversal = recordTransaction(postingService.createReversalDraft(original, description));
+        return transactionMapper.toTransactionDto(reversal);
     }
 
     /**

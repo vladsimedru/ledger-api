@@ -5,9 +5,11 @@ import static org.awaitility.Awaitility.await;
 
 import com.ledger.TestTopics;
 import com.ledger.TestcontainersConfiguration;
+import com.ledger.api.generated.model.AccountDto;
+import com.ledger.api.generated.model.OpenAccountRequestDto;
+import com.ledger.application.port.TransactionRepository;
 import com.ledger.application.service.LedgerQueryService;
 import com.ledger.application.service.LedgerService;
-import com.ledger.domain.model.Account;
 import com.ledger.domain.model.Direction;
 import com.ledger.domain.model.EntryDraft;
 import com.ledger.domain.model.LedgerCurrency;
@@ -42,39 +44,45 @@ class MessagingIT {
     @Autowired
     LedgerQueryService ledgerQueryService;
     @Autowired
+    TransactionRepository transactionRepository;
+    @Autowired
     KafkaTemplate<String, String> kafkaTemplate;
     @Autowired
     JdbcClient jdbcClient;
     @Autowired
     JsonMapper jsonMapper;
 
+    private AccountDto openAccount(String currency, String label) {
+        return ledgerService.openAccount(new OpenAccountRequestDto().currency(currency).label(label));
+    }
+
     // --- consuming payment-settled ---
 
     @Test
     void a_settled_payment_debits_settlement_and_credits_the_merchant() {
-        Account merchant = ledgerService.openAccount("JPY", null, "Merchant 7");
+        AccountDto merchant = openAccount("JPY", "Merchant 7");
         String paymentId = "pay-" + UUID.randomUUID();
 
-        send(paymentId, settled(UUID.randomUUID().toString(), paymentId, merchant.id(), "15000", "JPY"));
+        send(paymentId, settled(UUID.randomUUID().toString(), paymentId, merchant.getId(), "15000", "JPY"));
 
         await().atMost(WAIT).until(() -> balance(merchant).equals("15000"));
         Transaction t = transactionOf(paymentId);
         assertThat(t.entries()).extracting(e -> e.accountId(), e -> e.direction()).containsExactly(
                 org.assertj.core.groups.Tuple.tuple(SettlementAccounts.of(LedgerCurrency.JPY), Direction.DEBIT),
-                org.assertj.core.groups.Tuple.tuple(merchant.id(), Direction.CREDIT));
+                org.assertj.core.groups.Tuple.tuple(merchant.getId(), Direction.CREDIT));
     }
 
     @Test
     void the_same_payment_is_recorded_once_however_often_and_under_whatever_event_id_it_arrives() {
-        Account merchant = ledgerService.openAccount("EUR", null, "Merchant 42");
+        AccountDto merchant = openAccount("EUR", "Merchant 42");
         String paymentId = "pay-" + UUID.randomUUID();
         String eventId = UUID.randomUUID().toString();
 
-        send(paymentId, settled(eventId, paymentId, merchant.id(), "125.50", "EUR"));
-        send(paymentId, settled(eventId, paymentId, merchant.id(), "125.50", "EUR"));            // redelivered
-        send(paymentId, settled(UUID.randomUUID().toString(), paymentId, merchant.id(), "125.5", "EUR")); // re-sent, new event id
+        send(paymentId, settled(eventId, paymentId, merchant.getId(), "125.50", "EUR"));
+        send(paymentId, settled(eventId, paymentId, merchant.getId(), "125.50", "EUR"));            // redelivered
+        send(paymentId, settled(UUID.randomUUID().toString(), paymentId, merchant.getId(), "125.5", "EUR")); // re-sent, new event id
         String marker = "pay-" + UUID.randomUUID();
-        send(paymentId, settled(UUID.randomUUID().toString(), marker, merchant.id(), "0.01", "EUR"));
+        send(paymentId, settled(UUID.randomUUID().toString(), marker, merchant.getId(), "0.01", "EUR"));
 
         // Same key, same partition: once the marker is in, every copy before it has been handled.
         await().atMost(WAIT).until(() -> paymentCount(marker) == 1);
@@ -84,20 +92,20 @@ class MessagingIT {
 
     @Test
     void messages_that_cant_be_recorded_go_to_the_dead_letter_topic_and_dont_block_the_rest() {
-        Account eurMerchant = ledgerService.openAccount("EUR", null, "EUR merchant");
-        Account usdMerchant = ledgerService.openAccount("USD", null, "USD merchant");
+        AccountDto eurMerchant = openAccount("EUR", "EUR merchant");
+        AccountDto usdMerchant = openAccount("USD", "USD merchant");
         String key = "poison-" + UUID.randomUUID();
         String conflicting = "pay-" + UUID.randomUUID();
 
         send(key, "{this is not json");
         send(key, settled("e1", "pay-" + UUID.randomUUID(), UUID.randomUUID(), "10.00", "EUR"));   // unknown account
-        send(key, settled("e2", "pay-" + UUID.randomUUID(), usdMerchant.id(), "10.00", "EUR"));    // wrong currency
-        send(key, settled("e3", "pay-" + UUID.randomUUID(), eurMerchant.id(), "10.005", "EUR"));   // too precise
-        send(key, settled("e4", "pay-" + UUID.randomUUID(), eurMerchant.id(), "10.00", "GBP"));    // unsupported currency
-        send(key, settled("e5", conflicting, eurMerchant.id(), "1.00", "EUR"));
-        send(key, settled("e6", conflicting, eurMerchant.id(), "2.00", "EUR"));                   // same payment, other amount
+        send(key, settled("e2", "pay-" + UUID.randomUUID(), usdMerchant.getId(), "10.00", "EUR"));    // wrong currency
+        send(key, settled("e3", "pay-" + UUID.randomUUID(), eurMerchant.getId(), "10.005", "EUR"));   // too precise
+        send(key, settled("e4", "pay-" + UUID.randomUUID(), eurMerchant.getId(), "10.00", "GBP"));    // unsupported currency
+        send(key, settled("e5", conflicting, eurMerchant.getId(), "1.00", "EUR"));
+        send(key, settled("e6", conflicting, eurMerchant.getId(), "2.00", "EUR"));                   // same payment, other amount
         String good = "pay-" + UUID.randomUUID();
-        send(key, settled("e7", good, eurMerchant.id(), "5.00", "EUR"));
+        send(key, settled("e7", good, eurMerchant.getId(), "5.00", "EUR"));
 
         await().atMost(WAIT).until(() -> paymentCount(good) == 1);
         assertThat(balance(eurMerchant)).isEqualTo("6.00");
@@ -114,16 +122,16 @@ class MessagingIT {
 
     @Test
     void every_recorded_transaction_is_announced_with_its_details_in_order() {
-        Account a = ledgerService.openAccount("USD", null, "A");
-        Account b = ledgerService.openAccount("USD", null, "B");
+        AccountDto a = openAccount("USD", "A");
+        AccountDto b = openAccount("USD", "B");
         MDC.put("requestId", "req-" + UUID.randomUUID());
         List<UUID> recorded = new ArrayList<>();
         try {
-            recorded.add(ledgerService.recordTransaction(transfer(SettlementAccounts.of(LedgerCurrency.USD), a.id(), "10.00")).id());
+            recorded.add(ledgerService.recordTransaction(transfer(SettlementAccounts.of(LedgerCurrency.USD), a.getId(), "10.00")).id());
             for (int i = 0; i < 5; i++) {
-                recorded.add(ledgerService.recordTransaction(transfer(a.id(), b.id(), "1.00")).id());
+                recorded.add(ledgerService.recordTransaction(transfer(a.getId(), b.getId(), "1.00")).id());
             }
-            recorded.add(ledgerService.reverseTransaction(recorded.get(1), null).id());
+            recorded.add(ledgerService.reverseTransaction(recorded.get(1), null).getId());
         } finally {
             MDC.remove("requestId");
         }
@@ -145,10 +153,10 @@ class MessagingIT {
 
     @Test
     void a_settled_payment_is_announced_with_its_payment_id_traceable_to_the_event() {
-        Account merchant = ledgerService.openAccount("EUR", null, "Merchant");
+        AccountDto merchant = openAccount("EUR", "Merchant");
         String paymentId = "pay-" + UUID.randomUUID();
         String eventId = UUID.randomUUID().toString();
-        send(paymentId, settled(eventId, paymentId, merchant.id(), "3.00", "EUR"));
+        send(paymentId, settled(eventId, paymentId, merchant.getId(), "3.00", "EUR"));
 
         List<ConsumerRecord<String, String>> announced = TestTopics.readUntil("ledger.transactions",
                 r -> paymentId.equals(read(r).at("/transaction/paymentId").asString()), found -> !found.isEmpty(), WAIT);
@@ -161,8 +169,8 @@ class MessagingIT {
     void an_announcement_waiting_in_the_outbox_survives_and_is_published() {
         // A transaction committed by an instance that died before relaying is just an unpublished outbox
         // row: whichever instance relays next publishes it.
-        Account merchant = ledgerService.openAccount("EUR", null, "Merchant");
-        Transaction t = ledgerService.recordTransaction(transfer(SettlementAccounts.of(LedgerCurrency.EUR), merchant.id(), "1.00"));
+        AccountDto merchant = openAccount("EUR", "Merchant");
+        Transaction t = ledgerService.recordTransaction(transfer(SettlementAccounts.of(LedgerCurrency.EUR), merchant.getId(), "1.00"));
         await().atMost(WAIT).until(() -> published(t.id()));
     }
 
@@ -184,8 +192,8 @@ class MessagingIT {
                 new EntryDraft(to, Direction.CREDIT, new BigDecimal(amount))));
     }
 
-    private String balance(Account account) {
-        return ledgerQueryService.getBalance(account.id(), null).balance().toPlainString();
+    private String balance(AccountDto account) {
+        return ledgerQueryService.getBalance(account.getId(), null).getBalance();
     }
 
     private long paymentCount(String paymentId) {
@@ -194,7 +202,7 @@ class MessagingIT {
 
     private Transaction transactionOf(String paymentId) {
         String id = jdbcClient.sql("SELECT id FROM transactions WHERE payment_id = ?").param(paymentId).query(String.class).single();
-        return ledgerQueryService.getTransaction(UUID.fromString(id)).transaction();
+        return transactionRepository.find(UUID.fromString(id)).orElseThrow();
     }
 
     private boolean published(UUID transactionId) {
