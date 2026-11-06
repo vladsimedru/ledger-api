@@ -1,5 +1,7 @@
 # Ledger API
 
+[![CI](https://github.com/vladsimedru/ledger-api/actions/workflows/ci.yml/badge.svg)](https://github.com/vladsimedru/ledger-api/actions/workflows/ci.yml)
+
 A double-entry ledger: money is held in accounts and moves only through balanced, immutable
 transactions. Transactions are recorded through a REST API and from `payment-settled` Kafka messages,
 and every recorded transaction is announced on Kafka. It runs as several instances and keeps every

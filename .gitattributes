@@ -1,0 +1,6 @@
+# Scripts run on Linux and macOS (GitHub Actions, Docker, an evaluator's machine): always LF,
+# whatever the core.autocrlf setting of whoever commits them.
+mvnw                                    text eol=lf
+*.sh                                    text eol=lf
+.mvn/wrapper/maven-wrapper.properties   text eol=lf
+*.cmd                                   text eol=crlf
