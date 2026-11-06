@@ -19,6 +19,7 @@ import com.ledger.model.LedgerCurrency;
 import com.ledger.model.Money;
 import com.ledger.model.Posting;
 import com.ledger.model.SettlementAccounts;
+import com.ledger.model.SettlementResult;
 import com.ledger.model.TransactionDraft;
 import com.ledger.repository.AccountRepository;
 import com.ledger.repository.TransactionRepository;
@@ -132,10 +133,6 @@ public class LedgerService {
             Transaction recorded = transactionRepository.findByPaymentId(paymentId).orElseThrow(() -> e);
             return duplicate(recorded, merchantAccountId, amount, currency);
         }
-    }
-
-    /** @param duplicate whether the payment had already been recorded (nothing new was written) */
-    public record SettlementResult(Transaction transaction, boolean duplicate) {
     }
 
     private static SettlementResult duplicate(Transaction recorded, UUID merchantAccountId, BigDecimal amount,

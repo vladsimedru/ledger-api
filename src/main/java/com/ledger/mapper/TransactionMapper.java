@@ -9,7 +9,7 @@ import com.ledger.entity.Transaction;
 import com.ledger.model.EntryDraft;
 import com.ledger.model.LedgerCurrency;
 import com.ledger.model.TransactionDraft;
-import com.ledger.service.LedgerQueryService.TransactionView;
+import com.ledger.model.TransactionView;
 import java.util.UUID;
 import org.mapstruct.Context;
 import org.mapstruct.Mapper;

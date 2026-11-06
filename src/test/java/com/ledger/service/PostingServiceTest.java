@@ -142,6 +142,12 @@ class PostingServiceTest {
         }
 
         @Test
+        void at_least_two_different_accounts() {
+            assertRefused(() -> post(merchant42, DEBIT, "10.00", merchant42, CREDIT, "10.00"),
+                    ErrorCode.SAME_ACCOUNT, "/entries/1/accountId");
+        }
+
+        @Test
         void unknown_account() {
             UUID unknown = UUID.randomUUID();
             assertRefused(() -> postingService.post(UUID.randomUUID(), TransactionDraft.of("x", List.of(

@@ -6,7 +6,7 @@ import com.ledger.exception.LedgerRuleException;
 import com.ledger.exception.NotFoundException;
 import com.ledger.exception.ProblemFactory;
 import com.ledger.exception.StoredProblemException;
-import com.ledger.repository.IdempotencyKeyRepository.StoredResponse;
+import com.ledger.model.StoredResponse;
 import com.ledger.repository.IdempotencyKeyRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
@@ -58,13 +58,13 @@ public class IdempotencyService {
         String hash = hash(httpServletRequest.getMethod(), httpServletRequest.getRequestURI(),
                 jsonMapper.writeValueAsString(requestBody));
 
-        Outcome<T> outcome = transactionTemplate.execute(tx -> {
+        IdempotencyOutcome<T> outcome = transactionTemplate.execute(tx -> {
             var stored = idempotencyKeyRepository.claim(key, hash);
             if (stored.isPresent()) {
                 if (!stored.get().requestHash().equals(hash)) {
                     throw new IdempotencyKeyReusedException(key);
                 }
-                return new Outcome<>(stored.get(), null, true);
+                return new IdempotencyOutcome<>(stored.get(), null, true);
             }
             try {
                 ResponseEntity<T> fresh = work.get();
@@ -72,14 +72,14 @@ public class IdempotencyService {
                 StoredResponse response = new StoredResponse(hash, fresh.getStatusCode().value(),
                         jsonMapper.writeValueAsString(fresh.getBody()), location == null ? null : location.toString());
                 idempotencyKeyRepository.complete(key, response);
-                return new Outcome<>(response, fresh, false);
+                return new IdempotencyOutcome<>(response, fresh, false);
             } catch (LedgerRuleException | NotFoundException refusal) {
                 // Refusals happen before any write, and don't mark the transaction rollback-only:
                 // committing now stores just the refusal.
                 ProblemDto problem = problemFactory.createRefusal(refusal);
                 StoredResponse response = new StoredResponse(hash, problem.getStatus(), problemFactory.toJson(problem), null);
                 idempotencyKeyRepository.complete(key, response);
-                return new Outcome<>(response, null, false);
+                return new IdempotencyOutcome<>(response, null, false);
             }
         });
 
@@ -96,10 +96,6 @@ public class IdempotencyService {
             builder.location(URI.create(response.location()));
         }
         return builder.body(jsonMapper.readValue(response.body(), responseType));
-    }
-
-    /** @param fresh the response the work just returned; {@code null} for a retry or a refusal */
-    private record Outcome<T>(StoredResponse response, ResponseEntity<T> fresh, boolean replayed) {
     }
 
     private static String hash(String method, String path, String body) {

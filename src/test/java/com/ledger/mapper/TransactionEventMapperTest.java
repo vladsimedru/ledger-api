@@ -2,7 +2,8 @@ package com.ledger.mapper;
 
 import com.ledger.entity.Entry;
 import com.ledger.entity.Transaction;
-import com.ledger.messaging.TransactionRecordedEvent;
+import com.ledger.messaging.EntryPayload;
+import com.ledger.messaging.TransactionPayload;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -33,17 +34,17 @@ class TransactionEventMapperTest {
         Transaction reversal = new Transaction(UUID.randomUUID(), "Reversal", EUR, NOW, originalId, null, List.of(
                 new Entry(MERCHANT, DEBIT, 12550, -2450, NOW), new Entry(SETTLEMENT, CREDIT, 12550, 0, NOW)));
 
-        TransactionRecordedEvent.Body body = transactionEventMapper.toEventBody(reversal);
+        TransactionPayload payload = transactionEventMapper.toTransactionPayload(reversal);
 
-        assertThat(body.id()).isEqualTo(reversal.id().toString());
-        assertThat(body.description()).isEqualTo("Reversal");
-        assertThat(body.currency()).isEqualTo("EUR");
-        assertThat(body.recordedAt()).isEqualTo(NOW);
-        assertThat(body.reversesTransactionId()).isEqualTo(originalId.toString());
-        assertThat(body.paymentId()).isNull();
-        assertThat(body.entries())
-                .extracting(TransactionRecordedEvent.Line::accountId, TransactionRecordedEvent.Line::direction,
-                        TransactionRecordedEvent.Line::amount, TransactionRecordedEvent.Line::balanceAfter)
+        assertThat(payload.id()).isEqualTo(reversal.id().toString());
+        assertThat(payload.description()).isEqualTo("Reversal");
+        assertThat(payload.currency()).isEqualTo("EUR");
+        assertThat(payload.recordedAt()).isEqualTo(NOW);
+        assertThat(payload.reversesTransactionId()).isEqualTo(originalId.toString());
+        assertThat(payload.paymentId()).isNull();
+        assertThat(payload.entries())
+                .extracting(EntryPayload::accountId, EntryPayload::direction,
+                        EntryPayload::amount, EntryPayload::balanceAfter)
                 .containsExactly(
                         tuple(MERCHANT.toString(), "DEBIT", "125.50", "-24.50"),
                         tuple(SETTLEMENT.toString(), "CREDIT", "125.50", "0.00"));
@@ -54,9 +55,9 @@ class TransactionEventMapperTest {
         Transaction settled = new Transaction(UUID.randomUUID(), "Payment settled", EUR, NOW, null, "pay-123", List.of(
                 new Entry(SETTLEMENT, DEBIT, 100, -100, NOW), new Entry(MERCHANT, CREDIT, 100, 100, NOW)));
 
-        TransactionRecordedEvent.Body body = transactionEventMapper.toEventBody(settled);
+        TransactionPayload payload = transactionEventMapper.toTransactionPayload(settled);
 
-        assertThat(body.paymentId()).isEqualTo("pay-123");
-        assertThat(body.reversesTransactionId()).isNull();
+        assertThat(payload.paymentId()).isEqualTo("pay-123");
+        assertThat(payload.reversesTransactionId()).isNull();
     }
 }

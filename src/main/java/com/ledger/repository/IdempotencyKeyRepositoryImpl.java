@@ -1,5 +1,6 @@
 package com.ledger.repository;
 
+import com.ledger.model.StoredResponse;
 import java.time.Duration;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;

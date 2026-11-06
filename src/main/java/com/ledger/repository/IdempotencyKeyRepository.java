@@ -1,5 +1,6 @@
 package com.ledger.repository;
 
+import com.ledger.model.StoredResponse;
 import java.time.Duration;
 import java.util.Optional;
 
@@ -24,8 +25,4 @@ public interface IdempotencyKeyRepository {
 
     /** Deletes up to {@code limit} keys older than the retention period; returns how many it deleted. */
     int deleteOlderThan(Duration retention, int limit);
-
-    /** @param location the created resource's path, or {@code null} */
-    record StoredResponse(String requestHash, int status, String body, String location) {
-    }
 }

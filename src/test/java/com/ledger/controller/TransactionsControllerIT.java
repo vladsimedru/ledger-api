@@ -126,6 +126,10 @@ class TransactionsControllerIT extends AbstractControllerIT {
         assertProblem(mixed, 422, "CURRENCY_MISMATCH");
         assertThat(read(mixed).at("/errors/0/pointer").asString()).isEqualTo("/entries/1/accountId");
 
+        MockHttpServletResponse sameAccount = send(post("/v1/transactions"), newKey(), transfer(eur, eur, "1.00"));
+        assertProblem(sameAccount, 422, "SAME_ACCOUNT");
+        assertThat(read(sameAccount).at("/errors/0/pointer").asString()).isEqualTo("/entries/1/accountId");
+
         MockHttpServletResponse unknown = send(post("/v1/transactions"), newKey(), transfer(eur, UUID.randomUUID().toString(), "1.00"));
         assertProblem(unknown, 422, "UNKNOWN_ACCOUNT");
 

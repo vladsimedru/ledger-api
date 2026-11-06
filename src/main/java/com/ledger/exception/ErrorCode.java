@@ -8,6 +8,8 @@ public enum ErrorCode {
     AMOUNT_PRECISION_EXCEEDED,
     AMOUNT_OUT_OF_RANGE,
     TOO_FEW_ENTRIES,
+    /** Every entry posts to the same account: no money would move. */
+    SAME_ACCOUNT,
     UNKNOWN_ACCOUNT,
     CURRENCY_MISMATCH,
     UNBALANCED,

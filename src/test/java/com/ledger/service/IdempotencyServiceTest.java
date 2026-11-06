@@ -1,11 +1,5 @@
 package com.ledger.service;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
 import com.ledger.api.generated.model.AccountDto;
 import com.ledger.api.generated.model.OpenAccountRequestDto;
 import com.ledger.exception.ErrorCode;
@@ -14,6 +8,7 @@ import com.ledger.exception.LedgerRuleException;
 import com.ledger.exception.NotFoundException;
 import com.ledger.exception.ProblemFactory;
 import com.ledger.exception.StoredProblemException;
+import com.ledger.model.StoredResponse;
 import com.ledger.repository.IdempotencyKeyRepository;
 import java.net.URI;
 import java.time.Duration;
@@ -31,6 +26,12 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 
 /** Retries, key reuse and stored refusals, against an in-memory key store. */
 class IdempotencyServiceTest {
@@ -57,7 +58,7 @@ class IdempotencyServiceTest {
         assertThat(response.getHeaders().containsHeader(IdempotencyService.REPLAYED_HEADER)).isFalse();
         assertThat(timesWorkRan).hasValue(1);
 
-        IdempotencyKeyRepository.StoredResponse stored = idempotencyKeyRepository.completed.get(KEY);
+        StoredResponse stored = idempotencyKeyRepository.completed.get(KEY);
         assertThat(stored.status()).isEqualTo(201);
         assertThat(stored.location()).isEqualTo(LOCATION);
         assertThat(jsonMapper.readValue(stored.body(), AccountDto.class)).isEqualTo(ACCOUNT);

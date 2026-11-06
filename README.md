@@ -102,8 +102,8 @@ transaction**:
    (`Idempotent-Replayed: true`) and nothing happens twice; the same key with a different request is refused.
 2. **Lock** every account involved (`SELECT … FOR UPDATE`), one at a time in ascending id order, so
    concurrent transactions can't lose updates or deadlock.
-3. **Apply the rules** (`PostingService`): balanced debits and credits, one currency, valid amounts, no
-   account past its overdraft limit. A refusal writes nothing.
+3. **Apply the rules** (`PostingService`): balanced debits and credits, one currency, at least two different
+   accounts, valid amounts, no account past its overdraft limit. A refusal writes nothing.
 4. **Write** the transaction, its entries, the new balances, the stored response and an outbox event.
 
 Amounts are decimal strings in the API and `BIGINT` minor units in the database; there is no floating

@@ -17,7 +17,7 @@ import com.ledger.entity.Transaction;
 import com.ledger.model.EntryDraft;
 import com.ledger.model.LedgerCurrency;
 import com.ledger.model.TransactionDraft;
-import com.ledger.service.LedgerQueryService.TransactionView;
+import com.ledger.model.TransactionView;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;

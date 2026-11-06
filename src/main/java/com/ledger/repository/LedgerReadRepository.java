@@ -1,6 +1,6 @@
 package com.ledger.repository;
 
-import com.ledger.model.Direction;
+import com.ledger.model.AccountEntryView;
 import com.ledger.model.Money;
 import java.time.Instant;
 import java.util.List;
@@ -15,8 +15,4 @@ public interface LedgerReadRepository {
 
     /** The balance after the account's last entry recorded at or before {@code asOf}; empty if there is none. */
     Optional<Money> findBalanceAsOf(UUID accountId, Money zero, Instant asOf);
-
-    record AccountEntryView(long entryId, UUID transactionId, String description, Direction direction,
-                            Money amount, Money balanceAfter, Instant recordedAt) {
-    }
 }

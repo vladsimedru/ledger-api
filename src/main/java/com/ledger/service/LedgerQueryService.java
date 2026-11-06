@@ -9,9 +9,12 @@ import com.ledger.entity.Transaction;
 import com.ledger.exception.NotFoundException;
 import com.ledger.mapper.AccountMapper;
 import com.ledger.mapper.TransactionMapper;
+import com.ledger.model.AccountEntryView;
+import com.ledger.model.BalanceView;
+import com.ledger.model.EntryPage;
 import com.ledger.model.Money;
+import com.ledger.model.TransactionView;
 import com.ledger.repository.AccountRepository;
-import com.ledger.repository.LedgerReadRepository.AccountEntryView;
 import com.ledger.repository.LedgerReadRepository;
 import com.ledger.repository.TransactionRepository;
 import com.ledger.support.LedgerClock;
@@ -81,16 +84,5 @@ public class LedgerQueryService {
 
     private Account findAccount(UUID id) {
         return accountRepository.find(id).orElseThrow(() -> new NotFoundException("Account", id));
-    }
-
-    /** @param reversedBy the reversal of this transaction, or {@code null} */
-    public record TransactionView(Transaction transaction, UUID reversedBy) {
-    }
-
-    /** @param nextCursor {@code null} on the last page */
-    public record EntryPage(List<AccountEntryView> items, Long nextCursor) {
-    }
-
-    public record BalanceView(Account account, Money balance, Instant asOf) {
     }
 }

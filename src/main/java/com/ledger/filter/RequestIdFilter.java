@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -18,6 +19,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * otherwise. It is echoed back, put in every log line (MDC) and carried into the announcements the
  * request causes, so one request can be followed end to end.
  */
+@Slf4j
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class RequestIdFilter extends OncePerRequestFilter {
@@ -30,8 +32,7 @@ public class RequestIdFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        String given = request.getHeader(HEADER);
-        String requestId = given != null && ACCEPTABLE.matcher(given).matches() ? given : UUID.randomUUID().toString();
+        String requestId = resolveRequestId(request);
         MDC.put(MDC_KEY, requestId);
         response.setHeader(HEADER, requestId);
         try {
@@ -39,5 +40,21 @@ public class RequestIdFilter extends OncePerRequestFilter {
         } finally {
             MDC.remove(MDC_KEY);
         }
+    }
+
+    /** The caller's id if it sent a sensible one; otherwise a new one, logged with the request it was made for. */
+    private static String resolveRequestId(HttpServletRequest request) {
+        String given = request.getHeader(HEADER);
+        if (given != null && ACCEPTABLE.matcher(given).matches()) {
+            return given;
+        }
+        String generated = UUID.randomUUID().toString();
+        if (given == null) {
+            log.debug("No {} header; generated {} for {} {}", HEADER, generated, request.getMethod(), request.getRequestURI());
+        } else {
+            log.debug("Invalid {} header ignored; generated {} for {} {}", HEADER, generated, request.getMethod(),
+                    request.getRequestURI());
+        }
+        return generated;
     }
 }

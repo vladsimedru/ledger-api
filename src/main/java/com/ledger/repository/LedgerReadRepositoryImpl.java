@@ -1,5 +1,6 @@
 package com.ledger.repository;
 
+import com.ledger.model.AccountEntryView;
 import com.ledger.model.Direction;
 import com.ledger.model.LedgerCurrency;
 import com.ledger.model.Money;

@@ -2,7 +2,7 @@ package com.ledger.messaging;
 
 import com.ledger.exception.InvalidPaymentMessageException;
 import com.ledger.filter.RequestIdFilter;
-import com.ledger.service.LedgerService.SettlementResult;
+import com.ledger.model.SettlementResult;
 import com.ledger.service.LedgerService;
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -28,17 +28,9 @@ class PaymentSettledListener {
     private final LedgerService ledgerService;
     private final JsonMapper jsonMapper;
 
-    /**
-     * The message the payment system sends. {@code amount} is a decimal string (a JSON number is accepted
-     * too, and read from its text, never through a double).
-     */
-    record PaymentSettled(String eventId, String paymentId, String merchantAccountId, String amount,
-                          String currency) {
-    }
-
     @KafkaListener(topics = "${ledger.topics.payments-settled}", concurrency = "3")
     void onPaymentSettled(ConsumerRecord<String, String> record) {
-        PaymentSettled message = parseMessage(record.value());
+        PaymentSettledMessage message = parseMessage(record.value());
         MDC.put("paymentId", message.paymentId());
         // The event id doubles as the request id, so the announcement this causes can be traced back to it.
         MDC.put(RequestIdFilter.MDC_KEY, message.eventId() != null ? message.eventId() : "payment-" + message.paymentId());
@@ -60,10 +52,10 @@ class PaymentSettledListener {
         }
     }
 
-    private PaymentSettled parseMessage(String value) {
-        PaymentSettled message;
+    private PaymentSettledMessage parseMessage(String value) {
+        PaymentSettledMessage message;
         try {
-            message = jsonMapper.readValue(value, PaymentSettled.class);
+            message = jsonMapper.readValue(value, PaymentSettledMessage.class);
         } catch (JacksonException e) {
             throw new InvalidPaymentMessageException("Not a payment-settled message: " + e.getOriginalMessage(), e);
         } catch (RuntimeException e) {

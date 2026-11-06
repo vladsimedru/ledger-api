@@ -420,7 +420,7 @@ components:
           maxLength: 500
         entries:
           type: array
-          description: At least two entries (refused with TOO_FEW_ENTRIES otherwise).
+          description: At least two entries, on at least two different accounts (refused with TOO_FEW_ENTRIES or SAME_ACCOUNT otherwise).
           maxItems: 100
           items:
             $ref: '#/components/schemas/EntryRequest'
@@ -561,6 +561,7 @@ components:
         | AMOUNT_PRECISION_EXCEEDED | 422 | More decimal places than the currency allows |
         | AMOUNT_OUT_OF_RANGE | 422 | An amount, or the transaction's total, is too large to hold exactly |
         | TOO_FEW_ENTRIES | 422 | Fewer than two entries |
+        | SAME_ACCOUNT | 422 | Every entry posts to the same account, so no money would move |
         | UNKNOWN_ACCOUNT | 422 | An entry posts to an account that does not exist |
         | CURRENCY_MISMATCH | 422 | The accounts are in different currencies |
         | UNBALANCED | 422 | Debits and credits do not add up to the same total |
