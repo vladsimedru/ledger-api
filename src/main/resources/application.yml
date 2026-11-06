@@ -1,0 +1,61 @@
+spring:
+  application:
+    name: ledger-api
+  datasource:
+    url: ${LEDGER_DB_URL:jdbc:mysql://localhost:3306/ledger}
+    username: ${LEDGER_DB_USER:ledger}
+    password: ${LEDGER_DB_PASSWORD:ledger}
+    hikari:
+      maximum-pool-size: 20
+      # READ COMMITTED: locking reads (FOR UPDATE) give us serialisation per account,
+      # and we avoid REPEATABLE READ gap locks on the unique-key inserts.
+      transaction-isolation: TRANSACTION_READ_COMMITTED
+      # Every TIMESTAMP is read and written as UTC, whatever the host's or server's zone.
+      data-source-properties:
+        connectionTimeZone: UTC
+        forceConnectionTimeZoneToSession: true
+  flyway:
+    enabled: true
+  jackson:
+    # Optional fields are absent rather than null, as the API contract describes them
+    default-property-inclusion: non_null
+  kafka:
+    bootstrap-servers: ${LEDGER_KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: ledger
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    listener:
+      ack-mode: record
+
+ledger:
+  topics:
+    payments-settled: payments.settled
+    payments-settled-dlt: payments.settled.DLT
+    transactions: ledger.transactions
+  idempotency:
+    retention: 24h
+  outbox:
+    poll-interval: PT0.2S
+    batch-size: 100
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    # Kafka clients print their whole configuration at INFO on every start
+    org.apache.kafka: WARN
+  pattern:
+    level: "%5p [requestId=%X{requestId:-}] [paymentId=%X{paymentId:-}]"
